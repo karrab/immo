@@ -6,3 +6,7 @@
 .idea/
 .vscode/
 *.log
+
+# Artefacts de tests locaux
+cj_*
+out*.html
