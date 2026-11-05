@@ -1,0 +1,8 @@
+/vendor/
+/config/config.local.php
+/storage/logs/*
+!/storage/logs/.gitkeep
+.env
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,16 @@
+server {
+    listen 80;
+    server_name gestimmo.local;
+    root /var/www/gestimmo/public;      # seul le dossier public est exposé
+    index index.php;
+
+    location / { try_files $uri $uri/ /index.php?$query_string; }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+    }
+    location ~* \.(css|js|png|jpg|svg|woff2?)$ { expires 1y; access_log off; }
+    location ~ /\. { deny all; }
+}

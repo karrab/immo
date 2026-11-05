@@ -1,0 +1,34 @@
+services:
+  app:
+    build: { context: ., dockerfile: docker/Dockerfile }
+    ports: ["8080:80"]
+    environment:
+      DB_HOST: db
+      DB_NAME: gestimmo
+      DB_USER: gestimmo
+      DB_PASS: gestimmo
+      APP_DEBUG: "1"
+    volumes:
+      - ./docker/php-dev.ini:/usr/local/etc/php/conf.d/zzz-dev.ini:ro
+    depends_on:
+      db: { condition: service_healthy }
+
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: gestimmo
+      MYSQL_USER: gestimmo
+      MYSQL_PASSWORD: gestimmo
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - dbdata:/var/lib/mysql
+      - ./docker/my.cnf:/etc/mysql/conf.d/gestimmo.cnf:ro
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      retries: 20
+
+volumes:
+  dbdata:

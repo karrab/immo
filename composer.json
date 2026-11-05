@@ -1,0 +1,26 @@
+{
+    "name": "gestimmo/gestimmo",
+    "description": "Système d'information de gestion des immobilisations (PHP / MySQL / Bootstrap 5)",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-mbstring": "*",
+        "dompdf/dompdf": "^3.0"
+    },
+    "suggest": {
+        "ext-apcu": "Cache mémoire partagé (permissions, référentiels, compteurs)",
+        "ext-opcache": "Cache du bytecode PHP + préchargement"
+    },
+    "autoload": {
+        "psr-4": { "App\\": "app/" },
+        "files": ["app/helpers.php"]
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "classmap-authoritative": false,
+        "sort-packages": true
+    }
+}

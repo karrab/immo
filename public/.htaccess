@@ -1,0 +1,10 @@
+Options -Indexes
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+</IfModule>
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+</IfModule>
+DirectoryIndex index.php

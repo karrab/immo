@@ -1,0 +1,6 @@
+<?php
+// Copier en config.local.php et adapter.
+return [
+    'app' => ['debug' => true, 'organisation' => 'Ma Société'],
+    'db'  => ['host' => '127.0.0.1', 'name' => 'gestimmo', 'user' => 'gestimmo', 'pass' => 'secret'],
+];
