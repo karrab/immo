@@ -8,7 +8,7 @@ use App\Core\Cache;
 use App\Core\Controller;
 use App\Core\Csv;
 use App\Core\Database;
-use App\Core\Keyset;
+use App\Core\Scope;
 use App\Core\Pdf;
 use App\Core\Ref;
 use App\Core\View;
@@ -49,8 +49,7 @@ final class LocauxController extends Controller
     {
         $this->authorize('locaux.view');
         [$w, $p, $f] = $this->filters();
-        $page = (new Keyset(self::SELECT, $w, $p, 'l.code', 'code', 'l.id', 'ASC', $this->perPage()))
-            ->paginate($this->q('after', 200), $this->q('before', 200));
+        $page = $this->keyset(self::SELECT, $w, $p, 'l.code', 'code', 'l.id', 'ASC');
         $total = $this->cachedCount('locaux', 'SELECT COUNT(*) FROM locaux l' . ($w ? ' WHERE ' . implode(' AND ', $w) : ''), $p);
         $this->render('locaux/index', ['title' => 'Locaux / Bureaux', 'page' => $page, 'filters' => $f, 'total' => $total, 'batiments' => $this->batiments()]);
     }
@@ -80,14 +79,26 @@ final class LocauxController extends Controller
     {
         $this->authorize('locaux.view');
         $local = $this->find((int) $this->qint('id'));
+        // Biens du local limités au périmètre de l'utilisateur (tout / son service / ses biens)
+        [$w, $p] = $this->biensDuLocal((int) $local['id']);
         $select = "SELECT b.id, b.code_inventaire, b.designation, b.etat, b.statut, b.valeur_acquisition, c.libelle AS categorie,
                           CONCAT(e.nom, ' ', e.prenom) AS employe
-                     FROM biens b LEFT JOIN categories c ON c.id = b.categorie_id LEFT JOIN employes e ON e.id = b.employe_id";
-        $page = (new Keyset($select, ['b.local_id = ?'], [$local['id']], 'b.id', 'id', 'b.id', 'DESC', $this->perPage()))
-            ->paginate($this->q('after', 200), $this->q('before', 200));
-        $stats = Database::one('SELECT COUNT(*) AS nb, COALESCE(SUM(valeur_acquisition),0) AS valeur FROM biens WHERE local_id = ?', [$local['id']]);
+                     FROM biens b LEFT JOIN categories c ON c.id = b.categorie_id
+                     LEFT JOIN locaux l ON l.id = b.local_id LEFT JOIN employes e ON e.id = b.employe_id";
+        $page = $this->keyset($select, $w, $p, 'b.id', 'id', 'b.id', 'DESC');
+        $stats = Database::one('SELECT COUNT(*) AS nb, COALESCE(SUM(b.valeur_acquisition),0) AS valeur
+                                  FROM biens b LEFT JOIN locaux l ON l.id = b.local_id LEFT JOIN employes e ON e.id = b.employe_id
+                                 WHERE ' . implode(' AND ', $w), $p);
         $employes = Database::all('SELECT id, matricule, nom, prenom, fonction FROM employes WHERE local_id = ? AND actif = 1 ORDER BY nom', [$local['id']]);
         $this->render('locaux/show', ['title' => 'Local ' . $local['code'], 'local' => $local, 'page' => $page, 'stats' => $stats, 'employes' => $employes]);
+    }
+
+    private function biensDuLocal(int $localId): array
+    {
+        $w = ['b.local_id = ?'];
+        $p = [$localId];
+        Scope::applyBiens($w, $p);
+        return [$w, $p];
     }
 
     /** Fiche inventaire du local (liste des biens présents) à signer. */
@@ -95,12 +106,13 @@ final class LocauxController extends Controller
     {
         $this->authorize('locaux.export');
         $local = $this->find((int) $this->qint('id'));
+        [$w, $p] = $this->biensDuLocal((int) $local['id']);
         $rows = Database::all(
             "SELECT b.code_inventaire, b.designation, b.marque, b.modele, b.numero_serie, b.etat, b.valeur_acquisition,
                     CONCAT(e.nom, ' ', e.prenom) AS employe
-               FROM biens b LEFT JOIN employes e ON e.id = b.employe_id
-              WHERE b.local_id = ? ORDER BY b.code_inventaire",
-            [$local['id']]
+               FROM biens b LEFT JOIN locaux l ON l.id = b.local_id LEFT JOIN employes e ON e.id = b.employe_id
+              WHERE " . implode(' AND ', $w) . ' ORDER BY b.code_inventaire',
+            $p
         );
         Audit::log('impression', 'locaux', (int) $local['id'], 'Impression inventaire du local ' . $local['code']);
         $html = View::render('pdf/local_inventaire', ['title' => 'Inventaire du local ' . $local['code'], 'local' => $local, 'rows' => $rows], 'layout/pdf');

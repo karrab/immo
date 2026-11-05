@@ -9,9 +9,9 @@ use App\Core\Cache;
 use App\Core\Controller;
 use App\Core\Csv;
 use App\Core\Database;
-use App\Core\Keyset;
 use App\Core\Pdf;
 use App\Core\Ref;
+use App\Core\Scope;
 use App\Core\View;
 use App\Services\Amortissement;
 
@@ -89,7 +89,7 @@ final class BiensController extends Controller
         if ($f['code'] !== null)         { $w[] = 'b.code_inventaire LIKE ?'; $p[] = $f['code'] . '%'; }
         if ($f['categorie_id'] !== null) { $w[] = 'b.categorie_id = ?';       $p[] = $f['categorie_id']; }
         if ($f['local_id'] !== null)     { $w[] = 'b.local_id = ?';           $p[] = $f['local_id']; }
-        if ($f['service_id'] !== null)   { $w[] = 'l.service_id = ?';         $p[] = $f['service_id']; }
+        if ($f['service_id'] !== null)   { $w[] = '(l.service_id = ? OR e.service_id = ?)'; array_push($p, $f['service_id'], $f['service_id']); }
         if ($f['employe_id'] !== null)   { $w[] = 'b.employe_id = ?';         $p[] = $f['employe_id']; }
         if ($f['statut'] !== null)       { $w[] = 'b.statut = ?';             $p[] = $f['statut']; }
         if ($f['etat'] !== null)         { $w[] = 'b.etat = ?';               $p[] = $f['etat']; }
@@ -99,6 +99,9 @@ final class BiensController extends Controller
         if ($f['valeur_max'] !== null)   { $w[] = 'b.valeur_acquisition <= ?'; $p[] = $f['valeur_max']; }
         if ($f['fournisseur'] !== null)  { $w[] = 'b.fournisseur LIKE ?';     $p[] = $f['fournisseur'] . '%'; }
         if ($f['sans_local'])            { $w[] = 'b.local_id IS NULL'; }
+
+        // Périmètre : tout / biens du service (chef) / ses propres biens (employé)
+        Scope::applyBiens($w, $p);
 
         return [$w, $p, $f];
     }
@@ -117,19 +120,18 @@ final class BiensController extends Controller
         [$where, $params, $filters] = $this->filters();
         [$sortExpr, $sortKey, $dir] = $this->sort();
 
-        $page = (new Keyset(self::SELECT, $where, $params, $sortExpr, $sortKey, 'b.id', $dir, $this->perPage()))
-            ->paginate($this->q('after', 200), $this->q('before', 200));
+        $page = $this->keyset(self::SELECT, $where, $params, $sortExpr, $sortKey, 'b.id', $dir);
 
-        $countSql = 'SELECT COUNT(*) FROM biens b LEFT JOIN locaux l ON l.id = b.local_id'
+        $from = ' FROM biens b LEFT JOIN locaux l ON l.id = b.local_id LEFT JOIN employes e ON e.id = b.employe_id'
             . ($where ? ' WHERE ' . implode(' AND ', $where) : '');
+        $countSql = 'SELECT COUNT(*)' . $from;
         $total = $this->cachedCount('biens', $countSql, $params);
-        $sumSql = 'SELECT COALESCE(SUM(b.valeur_acquisition),0) FROM biens b LEFT JOIN locaux l ON l.id = b.local_id'
-            . ($where ? ' WHERE ' . implode(' AND ', $where) : '');
+        $sumSql = 'SELECT COALESCE(SUM(b.valeur_acquisition),0)' . $from;
         $somme = (float) Cache::rememberTagged('biens', 'sum:' . md5($sumSql . serialize($params)), 120,
             static fn() => Database::value($sumSql, $params));
 
         $this->render('biens/index', [
-            'title'    => 'Biens / Immobilisations',
+            'title'    => Scope::label(),
             'page'     => $page,
             'total'    => $total,
             'somme'    => $somme,
@@ -174,7 +176,7 @@ final class BiensController extends Controller
     /** Description lisible des filtres actifs (pour l'en-tête des exports). */
     private function describeFilters(array $f): array
     {
-        $out = [];
+        $out = Scope::isGlobal() ? [] : ['Périmètre' => Scope::label()];
         $find = static function (array $rows, ?int $id, callable $lbl) {
             foreach ($rows as $r) {
                 if ((int) $r['id'] === $id) {
@@ -210,6 +212,7 @@ final class BiensController extends Controller
             "SELECT b.*, c.code AS categorie_code, c.libelle AS categorie, c.compte_comptable, c.compte_amortissement,
                     l.code AS local_code, l.nom AS local_nom, l.batiment, l.etage, s.nom AS service,
                     e.matricule, CONCAT(e.nom, ' ', e.prenom) AS employe, e.fonction,
+                    e.service_id AS employe_service_id, l.service_id AS local_service_id,
                     uc.nom_complet AS cree_par, uu.nom_complet AS modifie_par
                FROM biens b
                JOIN categories c ON c.id = b.categorie_id
@@ -221,13 +224,14 @@ final class BiensController extends Controller
               WHERE b.id = ?",
             [$id]
         );
-        if (!$bien) {
+        if (!$bien || !Scope::canSeeBien($bien)) {
+            // Hors périmètre : on ne révèle pas l'existence du bien
             $this->notFound('Bien introuvable.');
         }
         return $bien;
     }
 
-    private function ficheData(array $bien): array
+    private function ficheData(array $bien, bool $paginate = true): array
     {
         $plan = Amortissement::plan(
             (float) $bien['valeur_acquisition'],
@@ -236,12 +240,14 @@ final class BiensController extends Controller
             $bien['methode_amortissement'],
             $bien['date_mise_service'] ?: $bien['date_acquisition']
         );
-        $historique = Database::all(
-            'SELECT h.*, u.nom_complet AS utilisateur FROM bien_historique h
-               LEFT JOIN users u ON u.id = h.user_id
-              WHERE h.bien_id = ? ORDER BY h.id DESC LIMIT 200',
-            [$bien['id']]
-        );
+        // Historique paginé (keyset, préfixe h_) sur la fiche ; complet (borné) pour le PDF
+        $histSelect = 'SELECT h.*, u.nom_complet AS utilisateur FROM bien_historique h LEFT JOIN users u ON u.id = h.user_id';
+        if ($paginate) {
+            $histPage = $this->keyset($histSelect, ['h.bien_id = ?'], [$bien['id']], 'h.id', 'id', 'h.id', 'DESC', 'h_');
+        } else {
+            $histPage = ['rows' => Database::all($histSelect . ' WHERE h.bien_id = ? ORDER BY h.id DESC LIMIT 1000', [$bien['id']]), 'next' => null, 'prev' => null];
+        }
+        $historique = $histPage['rows'];
         $transferts = Database::all(
             'SELECT t.id, t.numero, t.date_transfert, t.statut, ls.code AS source, ld.code AS destination
                FROM transfert_lignes tl
@@ -256,6 +262,8 @@ final class BiensController extends Controller
             'plan'       => $plan,
             'situation'  => Amortissement::situation($plan, (float) $bien['valeur_acquisition']),
             'historique' => $historique,
+            'histPage'   => $histPage,
+            'histTotal'  => (int) Database::value('SELECT COUNT(*) FROM bien_historique WHERE bien_id = ?', [$bien['id']]),
             'transferts' => $transferts,
         ];
     }
@@ -272,7 +280,7 @@ final class BiensController extends Controller
         $this->authorize('biens.export');
         $bien = $this->find((int) $this->qint('id'));
         Audit::log('impression', 'biens', (int) $bien['id'], 'Impression de la fiche ' . $bien['code_inventaire']);
-        $html = View::render('pdf/bien_fiche', ['title' => 'Fiche bien ' . $bien['code_inventaire']] + $this->ficheData($bien), 'layout/pdf');
+        $html = View::render('pdf/bien_fiche', ['title' => 'Fiche bien ' . $bien['code_inventaire']] + $this->ficheData($bien, false), 'layout/pdf');
         Pdf::stream($html, 'fiche_' . $bien['code_inventaire'] . '.pdf', 'portrait', !empty($_GET['inline']));
     }
 
@@ -338,6 +346,7 @@ final class BiensController extends Controller
         $this->authorize('biens.edit');
         $this->requirePost();
         $id = (int) $this->int('id');
+        $this->find($id); // contrôle d'existence et de périmètre
         $before = Database::one('SELECT * FROM biens WHERE id = ?', [$id]) ?? $this->notFound();
 
         [$data, $errors] = $this->validate($before);
@@ -407,6 +416,7 @@ final class BiensController extends Controller
         $this->authorize('biens.delete');
         $this->requirePost();
         $id = (int) $this->int('id');
+        $this->find($id); // contrôle d'existence et de périmètre
         $bien = Database::one('SELECT * FROM biens WHERE id = ?', [$id]) ?? $this->notFound();
         if (Database::value("SELECT 1 FROM transfert_lignes tl JOIN transferts t ON t.id = tl.transfert_id
                               WHERE tl.bien_id = ? AND t.statut = 'en_attente' LIMIT 1", [$id])) {

@@ -19,8 +19,13 @@ final class Auth
             if ($uid) {
                 $row = Database::one(
                     'SELECT u.id, u.username, u.nom_complet, u.email, u.role_id, u.employe_id, u.actif,
-                            r.nom AS role_nom, r.is_super
-                       FROM users u JOIN roles r ON r.id = u.role_id
+                            r.nom AS role_nom, r.is_super,
+                            e.type AS employe_type, e.service_id AS employe_service_id, e.actif AS employe_actif,
+                            s.nom AS service_nom
+                       FROM users u
+                       JOIN roles r ON r.id = u.role_id
+                       LEFT JOIN employes e ON e.id = u.employe_id
+                       LEFT JOIN services s ON s.id = e.service_id
                       WHERE u.id = ?',
                     [$uid]
                 );

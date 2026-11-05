@@ -11,6 +11,7 @@ INSERT INTO permissions (code, module, libelle) VALUES
 ('biens.edit',         'biens',      'Modifier un bien'),
 ('biens.delete',       'biens',      'Supprimer un bien'),
 ('biens.export',       'biens',      'Imprimer / exporter les biens'),
+('biens.view_all',     'biens',      'Voir tous les biens et tous les services (sinon : ses biens ou ceux de son service)'),
 ('categories.view',    'categories', 'Consulter les catégories'),
 ('categories.create',  'categories', 'Créer une catégorie'),
 ('categories.edit',    'categories', 'Modifier une catégorie'),
@@ -31,7 +32,7 @@ INSERT INTO permissions (code, module, libelle) VALUES
 ('employes.export',    'employes',   'Imprimer / exporter les employés'),
 ('transferts.view',    'transferts', 'Consulter les transferts'),
 ('transferts.create',  'transferts', 'Demander un transfert'),
-('transferts.validate','transferts', 'Valider / rejeter un transfert'),
+('transferts.validate','transferts', 'Valider / rejeter / annuler un transfert (en tant que chef du service source)'),
 ('transferts.delete',  'transferts', 'Supprimer un transfert'),
 ('transferts.export',  'transferts', 'Imprimer / exporter les transferts'),
 ('users.view',         'users',      'Consulter les utilisateurs'),
@@ -48,7 +49,9 @@ INSERT INTO permissions (code, module, libelle) VALUES
 INSERT INTO roles (id, nom, description, is_super) VALUES
 (1, 'Administrateur', 'Accès complet à toutes les fonctionnalités', 1),
 (2, 'Gestionnaire',   'Gestion du patrimoine, des locaux, des employés et des transferts', 0),
-(3, 'Consultant',     'Consultation et impression uniquement', 0);
+(3, 'Consultant',     'Consultation et impression uniquement', 0),
+(4, 'Chef de service', 'Voit les biens et employés de son service, valide les transferts de son service', 0),
+(5, 'Employé',         'Voit uniquement les biens qui lui sont affectés', 0);
 
 -- Gestionnaire : tout sauf utilisateurs / rôles / traces
 INSERT INTO role_permissions (role_id, permission_id)
@@ -57,7 +60,17 @@ SELECT 2, id FROM permissions WHERE module NOT IN ('users','roles','traces');
 -- Consultant : lecture + export des modules métier (pas d'administration)
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT 3, id FROM permissions
- WHERE (code LIKE '%.view' OR code LIKE '%.export') AND module NOT IN ('users','roles','traces');
+ WHERE (code LIKE '%.view' OR code LIKE '%.export' OR code = 'biens.view_all') AND module NOT IN ('users','roles','traces');
+
+-- Chef de service : son périmètre (service) + transferts
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT 4, id FROM permissions WHERE code IN
+ ('dashboard.view','biens.view','biens.export','locaux.view','employes.view','employes.export','services.view',
+  'transferts.view','transferts.create','transferts.validate','transferts.export');
+
+-- Employé : ses biens uniquement
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT 5, id FROM permissions WHERE code IN ('dashboard.view','biens.view','biens.export');
 
 INSERT INTO users (username, password_hash, nom_complet, email, role_id) VALUES
 ('admin', '$2y$10$JxaJJDGdZbl9GIPkCcHemepT2X38rq/7BeONocmiOkgoH/nWW3yiC', 'Administrateur système', 'admin@example.local', 1);
@@ -87,14 +100,20 @@ INSERT INTO locaux (code, nom, type, batiment, etage, service_id) VALUES
 ('S-A-010', 'Salle de réunion principale',  'salle_reunion', 'Bâtiment A', 'RDC', 1),
 ('M-C-000', 'Magasin central',              'magasin',       'Bâtiment C', 'RDC', 5);
 
-INSERT INTO employes (matricule, nom, prenom, fonction, service_id, local_id, email, date_embauche) VALUES
-('EMP001', 'BENALI',   'Karim',   'Directeur général',           1, 1, 'k.benali@example.local',   '2015-03-01'),
-('EMP002', 'HADDAD',   'Samira',  'Chef comptable',              2, 2, 's.haddad@example.local',   '2017-09-15'),
-('EMP003', 'MANSOURI', 'Youssef', 'Trésorier',                   2, 3, 'y.mansouri@example.local', '2019-01-07'),
-('EMP004', 'AMRANI',   'Nadia',   'Responsable informatique',    3, 4, 'n.amrani@example.local',   '2018-06-11'),
-('EMP005', 'TAZI',     'Omar',    'Technicien support',          3, 4, 'o.tazi@example.local',     '2021-02-01'),
-('EMP006', 'CHERKAOUI','Leila',   'Responsable RH',              4, 6, 'l.cherkaoui@example.local','2016-11-21'),
-('EMP007', 'IDRISSI',  'Hamid',   'Magasinier',                  5, 8, 'h.idrissi@example.local',  '2020-05-04');
+INSERT INTO employes (matricule, nom, prenom, fonction, service_id, local_id, email, date_embauche, type) VALUES
+('EMP001', 'BENALI',   'Karim',   'Directeur général',           1, 1, 'k.benali@example.local',   '2015-03-01', 'chef_service'),
+('EMP002', 'HADDAD',   'Samira',  'Chef comptable',              2, 2, 's.haddad@example.local',   '2017-09-15', 'chef_service'),
+('EMP003', 'MANSOURI', 'Youssef', 'Trésorier',                   2, 3, 'y.mansouri@example.local', '2019-01-07', 'employe'),
+('EMP004', 'AMRANI',   'Nadia',   'Responsable informatique',    3, 4, 'n.amrani@example.local',   '2018-06-11', 'chef_service'),
+('EMP005', 'TAZI',     'Omar',    'Technicien support',          3, 4, 'o.tazi@example.local',     '2021-02-01', 'employe'),
+('EMP006', 'CHERKAOUI','Leila',   'Responsable RH',              4, 6, 'l.cherkaoui@example.local','2016-11-21', 'chef_service'),
+('EMP007', 'IDRISSI',  'Hamid',   'Magasinier',                  5, 8, 'h.idrissi@example.local',  '2020-05-04', 'employe');
+
+-- Comptes de démonstration (mot de passe : Demo@1234)
+INSERT INTO users (username, password_hash, nom_complet, email, role_id, employe_id) VALUES
+('nadia', '$2y$10$Q7gBcc8sh14x0kfrP86nBeREXM8F2KgNm0w/z7IypGnuOSTDV0Vcq', 'Nadia AMRANI',   'n.amrani@example.local', 4, 4),
+('samira','$2y$10$Q7gBcc8sh14x0kfrP86nBeREXM8F2KgNm0w/z7IypGnuOSTDV0Vcq', 'Samira HADDAD',  's.haddad@example.local', 4, 2),
+('omar',  '$2y$10$Q7gBcc8sh14x0kfrP86nBeREXM8F2KgNm0w/z7IypGnuOSTDV0Vcq', 'Omar TAZI',      'o.tazi@example.local',   5, 5);
 
 INSERT INTO biens (code_inventaire, designation, categorie_id, marque, modele, numero_serie, fournisseur, numero_facture,
                    date_acquisition, date_mise_service, valeur_acquisition, duree_amortissement, etat, statut, local_id, employe_id, created_by) VALUES

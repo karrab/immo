@@ -113,10 +113,17 @@ abstract class Controller
         return $this->int($key, $_GET);
     }
 
-    protected function perPage(): int
+    protected function perPage(string $prefix = ''): int
     {
-        $pp = $this->qint('per_page') ?? (int) Config::get('app.per_page', 25);
+        $pp = $this->qint($prefix . 'per_page') ?? (int) Config::get('app.per_page', 25);
         return in_array($pp, [10, 25, 50, 100], true) ? $pp : 25;
+    }
+
+    /** Pagine une requête keyset avec les curseurs GET (préfixables). */
+    protected function keyset(string $select, array $where, array $params, string $sortExpr, string $sortKey, string $idExpr, string $dir, string $prefix = ''): array
+    {
+        return (new Keyset($select, $where, $params, $sortExpr, $sortKey, $idExpr, $dir, $this->perPage($prefix)))
+            ->paginate($this->q($prefix . 'after', 200), $this->q($prefix . 'before', 200));
     }
 
     /** Compte (mis en cache APCu) des lignes correspondant à un filtre. */

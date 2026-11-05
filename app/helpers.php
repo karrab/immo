@@ -37,6 +37,10 @@ const STATUTS_TRANSFERT = [
     'rejete'     => ['Rejeté',     'danger'],
     'annule'     => ['Annulé',     'secondary'],
 ];
+const TYPES_EMPLOYE = [
+    'employe'      => ['Employé',          'secondary'],
+    'chef_service' => ['Chef de service',  'primary'],
+];
 const METHODES_AMORT = ['lineaire' => 'Linéaire', 'degressif' => 'Dégressif'];
 const EVENEMENTS_BIEN = [
     'creation'          => ['Création',          'primary',   'plus-circle'],

@@ -13,12 +13,18 @@ final class RolesController extends Controller
     public function index(): void
     {
         $this->authorize('roles.view');
-        $roles = Database::all(
+        $w = [];
+        $p = [];
+        if ($q = $this->q('q')) {
+            $w[] = 'r.nom LIKE ?';
+            $p[] = '%' . $q . '%';
+        }
+        $page = $this->keyset(
             'SELECT r.*, (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id) AS nb_users,
                     (SELECT COUNT(*) FROM role_permissions rp WHERE rp.role_id = r.id) AS nb_perms
-               FROM roles r ORDER BY r.nom'
-        );
-        $this->render('roles/index', ['title' => 'Rôles & permissions', 'roles' => $roles,
+               FROM roles r', $w, $p, 'r.nom', 'nom', 'r.id', 'ASC');
+        $total = (int) Database::value('SELECT COUNT(*) FROM roles r' . ($w ? ' WHERE ' . implode(' AND ', $w) : ''), $p);
+        $this->render('roles/index', ['title' => 'Rôles & permissions', 'page' => $page, 'total' => $total,
             'nbPerms' => (int) Database::value('SELECT COUNT(*) FROM permissions')]);
     }
 

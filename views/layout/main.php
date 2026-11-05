@@ -3,9 +3,11 @@
 $route = $_GET['r'] ?? 'dashboard.index';
 $module = explode('.', $route)[0];
 $u = user();
+[$scopeType] = App\Core\Scope::current();
+$chefSid = App\Core\Scope::chefOfService();
 $menu = [
     ['dashboard',  'dashboard.view',  'speedometer2',     'Tableau de bord'],
-    ['biens',      'biens.view',      'box-seam',         'Biens'],
+    ['biens',      'biens.view',      'box-seam',         match ($scopeType) { 'employe' => 'Mes biens', 'service' => 'Biens du service', default => 'Biens' }],
     ['transferts', 'transferts.view', 'arrow-left-right', 'Transferts'],
     ['locaux',     'locaux.view',     'door-open',        'Locaux'],
     ['employes',   'employes.view',   'people',           'Employés'],
@@ -55,6 +57,7 @@ $adminLinks = implode('', array_map($link, $admin));
             <a class="nav-link dropdown-toggle text-white" href="#" data-bs-toggle="dropdown">
                 <i class="bi bi-person-circle me-1"></i><?= e($u['nom_complet'] ?? '') ?>
                 <span class="badge bg-light text-primary ms-1 d-none d-sm-inline"><?= e($u['role_nom'] ?? '') ?></span>
+                <?php if (!empty($u['service_nom'])): ?><span class="badge bg-warning text-dark ms-1 d-none d-md-inline" title="<?= e(label(TYPES_EMPLOYE, $u['employe_type'])) ?>"><i class="bi bi-<?= $u['employe_type'] === 'chef_service' ? 'person-badge' : 'person' ?>"></i> <?= e($u['service_nom']) ?></span><?php endif; ?>
             </a>
             <ul class="dropdown-menu dropdown-menu-end">
                 <li><a class="dropdown-item" href="<?= e(url('auth.password')) ?>"><i class="bi bi-key me-2"></i>Changer mon mot de passe</a></li>
@@ -79,6 +82,13 @@ $adminLinks = implode('', array_map($link, $admin));
                     <ul class="nav nav-pills flex-column">
                         <?= implode('', array_map($link, $menu)) ?>
                     </ul>
+                    <?php if ($chefSid && can('services.view')): ?>
+                        <div class="text-uppercase small text-body-secondary fw-semibold mt-4 mb-1 px-3">Chef de service</div>
+                        <ul class="nav nav-pills flex-column">
+                            <li class="nav-item"><a class="nav-link<?= $route === 'services.show' && (int) ($_GET['id'] ?? 0) === $chefSid ? ' active' : '' ?>" href="<?= e(url('services.show', ['id' => $chefSid])) ?>"><i class="bi bi-diagram-3 me-2"></i>Mon service</a></li>
+                            <?php if (can('transferts.view')): ?><li class="nav-item"><a class="nav-link<?= !empty($_GET['a_valider']) ? ' active' : '' ?>" href="<?= e(url('transferts.index', ['a_valider' => 1])) ?>"><i class="bi bi-hourglass-split me-2"></i>Transferts à valider</a></li><?php endif; ?>
+                        </ul>
+                    <?php endif; ?>
                     <?php if ($adminLinks): ?>
                         <div class="text-uppercase small text-body-secondary fw-semibold mt-4 mb-1 px-3">Administration</div>
                         <ul class="nav nav-pills flex-column"><?= $adminLinks ?></ul>

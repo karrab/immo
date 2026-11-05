@@ -9,8 +9,10 @@ PHP 8.1+ · MySQL 8 / MariaDB 10.5+ (InnoDB) · Bootstrap 5 · OPcache · APCu �
 |---|---|
 | **Fiche bien** | Identification, acquisition (fournisseur, facture), catégorie et comptes comptables, **plan d'amortissement** (linéaire prorata temporis / dégressif avec bascule), VNC, localisation, détenteur, **historique complet** (création, modifications champ par champ, transferts, affectations, changements d'état/statut). Code inventaire auto `CAT-AAAA-00001`. |
 | **Locaux** | Bureaux, salles, magasins… par bâtiment / étage / service. Biens présents, occupants, **fiche inventaire du local** imprimable à signer. |
-| **Transferts** | Bon de transfert multi-biens d'un bureau vers un autre, nouveau détenteur, workflow *en attente → validé / rejeté / annulé*, contrôle d'intégrité transactionnel (`SELECT … FOR UPDATE`), historique automatique sur chaque bien, **bon de transfert PDF** avec cases de signature. |
-| **Employés** | Matricule, fonction, service, bureau ; biens détenus ; **fiche de détention (décharge)** PDF. |
+| **Transferts** | Bon de transfert multi-biens d'un bureau vers un autre, nouveau détenteur, workflow *en attente → validé / rejeté / annulé* **toujours par le chef du service du local source** (l'administrateur ne supplée que si ce service n'a pas de chef), sélection des biens paginée avec recherche, contrôle d'intégrité transactionnel (`SELECT … FOR UPDATE`), historique automatique sur chaque bien, **bon de transfert PDF** avec cases de signature. |
+| **Services** | Directions / services avec **chef de service** désigné (un seul par service, garanti par une contrainte UNIQUE), fiche service : employés, locaux, biens, transferts à valider (listes paginées), export PDF/CSV. |
+| **Employés** | Deux types : **employé** et **chef de service**. Matricule, fonction, service, bureau ; biens détenus (paginés) ; **fiche de détention (décharge)** PDF. |
+| **Périmètre de visibilité** | L'utilisateur lié à un **employé** ne voit que **ses biens** ; lié à un **chef de service**, il voit **tous les biens de son service** (détenus par un employé du service ou situés dans un local du service), ses employés et ses transferts. La permission « voir tous les biens » (admin, gestionnaire, consultant) donne la vision globale. Appliqué aux listes, fiches, exports, PDF, tableau de bord et locaux (`app/Core/Scope.php`). |
 | **Utilisateurs** | Comptes liés éventuellement à un employé, activation, réinitialisation de mot de passe, politique de mot de passe. |
 | **Permissions** | RBAC : rôles + matrice de 39 permissions par module (voir, créer, modifier, supprimer, exporter, valider). Rôle super-admin. Contrôle côté serveur sur chaque action. |
 | **Traces** | Journal d'audit append-only : qui, quoi, quand, IP, navigateur, données avant/après (connexions, échecs, créations, modifications, suppressions, exports, impressions). Filtres + export. |
@@ -66,6 +68,15 @@ php bin/install.php
 
 (`--no-seed` pour n'installer que les rôles, permissions et le compte admin, sans données de démonstration.)
 
+Comptes de démonstration (mot de passe `Demo@1234`) : `samira` (chef du service DAF), `nadia` (chef du service DSI),
+`omar` (employé DSI).
+
+**Mise à jour d'une base existante** (version sans chefs de service) :
+
+```bash
+mysql gestimmo < database/migrations/002_chef_service.sql
+```
+
 La racine web doit pointer sur **`public/`** (exemple Nginx : `docker/nginx.conf.example`).
 Copier les réglages de `docker/php.ini` dans la configuration PHP (adapter `opcache.preload`).
 
@@ -90,7 +101,7 @@ app/
   Services/     Amortissement (plans linéaire / dégressif)
   helpers.php   e(), url(), money(), badge(), options()… + énumérations métier
 config/         config.php (+ config.local.php non versionné)
-database/       schema.sql (InnoDB + index), seed.sql (permissions, rôles, admin, démo)
+database/       schema.sql (InnoDB + index), seed.sql (permissions, rôles, admin, démo), migrations/
 public/         index.php (contrôleur frontal), assets (Bootstrap 5, icônes, Tom Select embarqués)
 views/          layout/, partials/, un dossier par module, pdf/ (gabarits d'impression)
 bin/            install.php, generate.php
@@ -108,6 +119,10 @@ est exposé. Un administrateur ne peut ni supprimer, ni désactiver, ni rétrogr
 
 ## Règles métier
 
+* Un seul chef par service (colonne générée `chef_service_id` + index UNIQUE). Changer de chef depuis la fiche
+  service rétrograde automatiquement l'ancien chef.
+* Validation, rejet et annulation d'un transfert : uniquement le chef du service du local source.
+* Un chef ne peut transférer que des biens de son périmètre.
 * Le local d'un bien ne se modifie pas dans sa fiche : il passe par un **transfert** (traçabilité).
 * Un bien ne peut figurer que dans un seul transfert en attente ; à la validation on vérifie qu'il est
   toujours dans le local source.

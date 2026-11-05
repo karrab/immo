@@ -8,7 +8,6 @@ use App\Core\Auth;
 use App\Core\Cache;
 use App\Core\Controller;
 use App\Core\Database;
-use App\Core\Keyset;
 use App\Core\Ref;
 
 final class UsersController extends Controller
@@ -24,11 +23,11 @@ final class UsersController extends Controller
         if ($f['role_id']) { $w[] = 'u.role_id = ?'; $p[] = $f['role_id']; }
         if ($f['actif'] !== null) { $w[] = 'u.actif = ?'; $p[] = $f['actif']; }
         $select = "SELECT u.id, u.username, u.nom_complet, u.email, u.actif, u.last_login_at, r.nom AS role,
-                          CONCAT(e.nom, ' ', e.prenom) AS employe
-                     FROM users u LEFT JOIN roles r ON r.id = u.role_id LEFT JOIN employes e ON e.id = u.employe_id";
-        $page = (new Keyset($select, $w, $p, 'u.username', 'username', 'u.id', 'ASC', $this->perPage()))
-            ->paginate($this->q('after', 200), $this->q('before', 200));
-        $this->render('users/index', ['title' => 'Utilisateurs', 'page' => $page, 'filters' => $f]);
+                          CONCAT(e.nom, ' ', e.prenom) AS employe, e.type AS employe_type, s.nom AS service
+                     FROM users u LEFT JOIN roles r ON r.id = u.role_id LEFT JOIN employes e ON e.id = u.employe_id LEFT JOIN services s ON s.id = e.service_id";
+        $page = $this->keyset($select, $w, $p, 'u.username', 'username', 'u.id', 'ASC');
+        $total = $this->cachedCount('users', 'SELECT COUNT(*) FROM users u' . ($w ? ' WHERE ' . implode(' AND ', $w) : ''), $p);
+        $this->render('users/index', ['title' => 'Utilisateurs', 'page' => $page, 'filters' => $f, 'total' => $total]);
     }
 
     public function create(): void

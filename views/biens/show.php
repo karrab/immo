@@ -92,7 +92,8 @@ $actions .= '<a class="btn btn-outline-secondary" href="' . e(url('biens.index')
             </div>
         </div>
         <div class="card mb-3">
-            <div class="card-header"><i class="bi bi-clock-history me-1"></i> Historique du bien</div>
+            <div class="card-header d-flex justify-content-between"><span><i class="bi bi-clock-history me-1"></i> Historique du bien</span>
+                <span class="badge text-bg-light border"><?= (int) $histTotal ?> événement(s)</span></div>
             <div class="card-body">
                 <ul class="timeline mb-0">
                     <?php foreach ($historique as $h): [$lbl, $color, $icon] = EVENEMENTS_BIEN[$h['type_evenement']]; ?>
@@ -104,6 +105,9 @@ $actions .= '<a class="btn btn-outline-secondary" href="' . e(url('biens.index')
                         </li>
                     <?php endforeach; ?>
                 </ul>
+                <?php if ($histPage['next'] || $histPage['prev']): ?>
+                    <div class="small"><?= partial('pager', ['page' => $histPage, 'prefix' => 'h_']) ?></div>
+                <?php endif; ?>
             </div>
             <div class="card-footer small text-body-secondary">
                 Créé par <?= e($b['cree_par'] ?? '—') ?> le <?= datetime_fr($b['created_at']) ?><br>

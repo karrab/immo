@@ -1,20 +1,35 @@
 <?php
+$isGlobal = $scope === App\Core\Scope::ALL;
 $cards = [
-    ['Biens inventoriés', number_format($stats['nb_biens'], 0, ',', ' '), 'box-seam', 'primary', url('biens.index')],
+    [$isGlobal ? 'Biens inventoriés' : ($scope === 'employe' ? 'Mes biens' : 'Biens du service'), number_format($stats['nb_biens'], 0, ',', ' '), 'box-seam', 'primary', url('biens.index')],
     ["Valeur d'acquisition", money($stats['valeur']), 'cash-stack', 'success', url('biens.index')],
-    ['Transferts en attente', $transferts['en_attente'], 'arrow-left-right', 'warning', url('transferts.index', ['statut' => 'en_attente'])],
-    ['Locaux actifs', $stats['nb_locaux'], 'door-open', 'info', url('locaux.index')],
-    ['Employés actifs', $stats['nb_employes'], 'people', 'secondary', url('employes.index')],
-    ['Biens sans local', $stats['sans_local'], 'geo', 'danger', url('biens.index', ['sans_local' => 1])],
 ];
+if ($chefSid) {
+    $cards[] = ['Transferts à valider', $transferts['a_valider'], 'hourglass-split', 'danger', url('transferts.index', ['a_valider' => 1])];
+}
+if (can('transferts.view')) {
+    $cards[] = ['Transferts en attente', $transferts['en_attente'], 'arrow-left-right', 'warning', url('transferts.index', ['statut' => 'en_attente'])];
+}
+if ($isGlobal) {
+    $cards[] = ['Locaux actifs', $stats['nb_locaux'], 'door-open', 'info', url('locaux.index')];
+    $cards[] = ['Employés actifs', $stats['nb_employes'], 'people', 'secondary', url('employes.index')];
+}
+$cards[] = ['Biens sans local', $stats['sans_local'], 'geo', 'danger', url('biens.index', ['sans_local' => 1])];
 $maxCat = max(1, ...array_map(static fn($c) => (float) $c['valeur'], $stats['par_categorie'] ?: [['valeur' => 1]]));
 ?>
-<?= partial('page_header', ['title' => 'Tableau de bord', 'icon' => 'speedometer2',
-    'actions' => can('biens.create') ? '<a class="btn btn-primary" href="' . e(url('biens.create')) . '"><i class="bi bi-plus-lg"></i> Nouveau bien</a>' : '']) ?>
+<?php
+$dashActions = ($chefSid && can('services.view') ? '<a class="btn btn-outline-primary" href="' . e(url('services.show', ['id' => $chefSid])) . '"><i class="bi bi-diagram-3"></i> Mon service</a>' : '')
+    . (can('biens.create') ? '<a class="btn btn-primary" href="' . e(url('biens.create')) . '"><i class="bi bi-plus-lg"></i> Nouveau bien</a>' : '');
+?>
+<?= partial('page_header', ['title' => 'Tableau de bord', 'icon' => 'speedometer2', 'actions' => $dashActions]) ?>
+<?php if (!$isGlobal): ?>
+    <div class="alert alert-<?= $scope === 'none' ? 'warning' : 'info' ?> py-2"><i class="bi bi-funnel"></i> Périmètre : <strong><?= e($scopeLabel) ?></strong>
+        <?= $chefSid ? ' — en tant que chef de service, vous validez les transferts sortant de votre service.' : '' ?></div>
+<?php endif; ?>
 
 <div class="row g-3 mb-3">
     <?php foreach ($cards as [$label, $value, $icon, $color, $href]): ?>
-    <div class="col-sm-6 col-xl-4">
+    <div class="col-sm-6 col-xl-4 col-xxl">
         <a href="<?= e($href) ?>" class="text-decoration-none">
         <div class="card stat-card h-100"><div class="card-body d-flex align-items-center gap-3">
             <div class="icon bg-<?= $color ?>-subtle text-<?= $color ?>"><i class="bi bi-<?= $icon ?>"></i></div>

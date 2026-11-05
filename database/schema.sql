@@ -122,16 +122,22 @@ CREATE TABLE employes (
     email         VARCHAR(150) NULL,
     telephone     VARCHAR(30)  NULL,
     date_embauche DATE         NULL,
+    type          ENUM('employe','chef_service') NOT NULL DEFAULT 'employe' COMMENT 'Chef de service : voit les biens du service et valide les transferts',
+    -- Colonne générée : vaut service_id uniquement pour un chef => UN SEUL chef par service (contrainte UNIQUE)
+    chef_service_id INT UNSIGNED AS (IF(type = 'chef_service', service_id, NULL)) STORED,
     actif         TINYINT(1)   NOT NULL DEFAULT 1,
     created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_employes_matricule (matricule),
+    UNIQUE KEY uq_employes_chef_service (chef_service_id),
+    KEY idx_employes_type (type, id),
     KEY idx_employes_nom (nom, prenom, id),
     KEY idx_employes_service (service_id, id),
     KEY idx_employes_local (local_id, id),
     KEY idx_employes_actif (actif, id),
-    CONSTRAINT fk_employes_service FOREIGN KEY (service_id) REFERENCES services (id) ON DELETE SET NULL,
+    -- RESTRICT (et non SET NULL) : requis par la colonne générée chef_service_id ; un service ne se supprime qu'une fois vidé
+    CONSTRAINT fk_employes_service FOREIGN KEY (service_id) REFERENCES services (id) ON DELETE RESTRICT,
     CONSTRAINT fk_employes_local   FOREIGN KEY (local_id)   REFERENCES locaux (id)   ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

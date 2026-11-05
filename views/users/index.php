@@ -15,7 +15,7 @@
     <tbody>
     <?php foreach ($page['rows'] as $u): ?>
         <tr><td class="fw-semibold"><?= e($u['username']) ?></td><td><?= e($u['nom_complet']) ?></td><td class="small"><?= e($u['email']) ?></td>
-            <td><span class="badge text-bg-info"><?= e($u['role']) ?></span></td><td class="small"><?= e($u['employe']) ?></td>
+            <td><span class="badge text-bg-info"><?= e($u['role']) ?></span></td><td class="small"><?= e($u['employe']) ?><?php if ($u['employe_type']): ?> <?= badge(TYPES_EMPLOYE, $u['employe_type']) ?><div class="text-body-secondary"><?= e($u['service']) ?></div><?php endif; ?></td>
             <td class="small"><?= datetime_fr($u['last_login_at']) ?: '<span class="text-body-secondary">jamais</span>' ?></td>
             <td><?= $u['actif'] ? '<span class="badge text-bg-success">Actif</span>' : '<span class="badge text-bg-secondary">Désactivé</span>' ?></td>
             <td class="text-end text-nowrap">
@@ -26,4 +26,4 @@
     <?php endforeach; ?>
     </tbody>
 </table></div></div>
-<?= partial('pager', ['page' => $page]) ?>
+<?= partial('pager', ['page' => $page, 'total' => $total]) ?>
