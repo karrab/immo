@@ -39,6 +39,16 @@ PHP 8.1+ · MySQL 8 / MariaDB 10.5+ (InnoDB) · Bootstrap 5 · OPcache · APCu �
 
 ## Installation
 
+### Le plus simple : depuis le navigateur (XAMPP, WAMP, Laragon…)
+
+1. Copier le projet dans le dossier web, par exemple `C:\xampp\htdocs\immo`, et démarrer Apache + MySQL.
+2. (Recommandé) `composer install` dans le dossier du projet, pour les exports PDF.
+3. Ouvrir **http://localhost/immo/** : l'assistant d'installation s'affiche (`public/install.php`).
+   Il vérifie le serveur, crée la base et les tables, écrit `config/config.local.php`, puis se désactive
+   (`storage/install.lock` ; supprimer ce fichier pour réinstaller).
+
+> `bin/install.php` est un script **en ligne de commande** : il ne s'ouvre pas dans le navigateur.
+
 ### Avec Docker (le plus simple)
 
 ```bash

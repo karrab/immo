@@ -10,3 +10,5 @@
 # Artefacts de tests locaux
 cj_*
 out*.html
+
+/storage/install.lock

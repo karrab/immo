@@ -1,42 +1,40 @@
 <?php
 /**
- * Installation : crée la base, le schéma et les données initiales.
+ * Installation en ligne de commande : crée la base, le schéma et les données initiales.
  *   php bin/install.php            (schéma + données de démonstration)
  *   php bin/install.php --no-seed  (schéma seul + compte admin)
+ *
+ * Sans ligne de commande : ouvrir http://localhost/immo/public/install.php
  */
 declare(strict_types=1);
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    header('Content-Type: text/html; charset=UTF-8');
+    echo '<p style="font-family:sans-serif">Ce script s\'exécute en ligne de commande (<code>php bin/install.php</code>).<br>'
+       . 'Pour installer depuis le navigateur, ouvrez <a href="../public/install.php">public/install.php</a>.</p>';
+    exit;
+}
 
 require dirname(__DIR__) . '/app/bootstrap.php';
 
 use App\Core\Config;
+use App\Core\Installer;
 
-$seed = !in_array('--no-seed', $argv, true);
+$args = $argv ?? [];
+$demo = !in_array('--no-seed', $args, true);
 $db = Config::get('db');
-$pdo = new PDO(sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $db['host'], $db['port']), $db['user'], $db['pass'], [
-    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-]);
-$pdo->exec(sprintf('CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci', $db['name']));
-$pdo->exec(sprintf('USE `%s`', $db['name']));
 
-$run = static function (string $file) use ($pdo): void {
-    $sql = (string) file_get_contents($file);
-    $sql = preg_replace('/^\s*--.*$/m', '', $sql);
-    foreach (array_filter(array_map('trim', preg_split('/;\s*$/m', $sql))) as $stmt) {
-        $pdo->exec($stmt);
+try {
+    $pdo = Installer::connect($db['host'], (int) $db['port'], $db['user'], $db['pass']);
+    echo "Installation de la base « {$db['name']} »" . PHP_EOL;
+    foreach (Installer::install($pdo, $db['name'], $demo) as $line) {
+        echo "  ✓ $line" . PHP_EOL;
     }
-    echo "  ✓ " . basename($file) . PHP_EOL;
-};
-
-echo "Installation de la base « {$db['name']} »" . PHP_EOL;
-$run(dirname(__DIR__) . '/database/schema.sql');
-if ($seed) {
-    $run(dirname(__DIR__) . '/database/seed.sql');
-} else {
-    // Uniquement permissions, rôles et admin
-    $seedSql = (string) file_get_contents(dirname(__DIR__) . '/database/seed.sql');
-    $cut = strpos($seedSql, 'INSERT INTO categories');
-    file_put_contents($tmp = tempnam(sys_get_temp_dir(), 'seed'), substr($seedSql, 0, $cut ?: null));
-    $run($tmp);
-    unlink($tmp);
+    Installer::lock();
+} catch (Throwable $e) {
+    fwrite(STDERR, 'Erreur : ' . $e->getMessage() . PHP_EOL
+        . 'Vérifiez les accès MySQL dans config/config.local.php (voir config.local.php.example).' . PHP_EOL);
+    exit(1);
 }
 echo PHP_EOL . "Terminé. Connexion : admin / Admin@123 (changez le mot de passe)." . PHP_EOL;

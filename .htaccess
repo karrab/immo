@@ -1,0 +1,11 @@
+# Projet ouvert depuis la racine (ex. XAMPP : http://localhost/immo/) :
+# seul le dossier public/ doit être servi. En production, faites pointer
+# la racine du site directement sur public/.
+DirectoryIndex index.php
+Options -Indexes
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(app|bin|config|database|docker|storage|vendor|views)(/|$) - [F,L]
+    RewriteRule ^(composer\.(json|lock)|preload\.php|docker-compose\.yml|README\.md)$ - [F,L]
+    RewriteRule ^\. - [F,L]
+</IfModule>
