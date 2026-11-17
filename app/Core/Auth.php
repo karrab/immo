@@ -58,14 +58,17 @@ final class Auth
         $lock = (int) Config::get('security.login_lock_seconds', 900);
         $key  = 'login:' . sha1(client_ip() . '|' . mb_strtolower($username));
 
-        if (Cache::counter($key) >= $max) {
+        $throttle = $max > 0; // 0 = protection anti force brute désactivée
+        if ($throttle && Cache::counter($key) >= $max) {
             Audit::log('login_bloque', 'auth', null, "Connexion bloquée pour « $username » (trop de tentatives)", [], $username);
             return 'Trop de tentatives. Réessayez dans ' . (int) ceil($lock / 60) . ' minutes.';
         }
 
         $user = Database::one('SELECT id, username, password_hash, actif FROM users WHERE username = ?', [$username]);
         if (!$user || !password_verify($password, $user['password_hash'])) {
-            Cache::increment($key, $lock);
+            if ($throttle) {
+                Cache::increment($key, $lock);
+            }
             Audit::log('login_echec', 'auth', $user['id'] ?? null, "Échec de connexion pour « $username »", [], $username);
             return 'Identifiant ou mot de passe incorrect.';
         }

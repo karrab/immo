@@ -33,8 +33,10 @@ $config = [
         'ttl_perms'   => 600,   // permissions des rôles
     ],
     'security' => [
-        'login_max_attempts' => 5,
-        'login_lock_seconds' => 900,
+        // Blocage après N échecs de connexion : 0 = désactivé (aucun blocage).
+        // Pour le réactiver : LOGIN_MAX_ATTEMPTS=5 ou 'security' => ['login_max_attempts' => 5] dans config.local.php
+        'login_max_attempts' => (int) $env('LOGIN_MAX_ATTEMPTS', 0),
+        'login_lock_seconds' => (int) $env('LOGIN_LOCK_SECONDS', 900),
     ],
 ];
 

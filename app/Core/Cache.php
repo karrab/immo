@@ -106,9 +106,14 @@ final class Cache
             $v = apcu_inc($k, 1, $ok, $ttl);
             return $ok ? (int) $v : 1;
         }
-        // Repli : compteur en session (moins robuste, mais fonctionnel)
-        $_SESSION['_cnt'][$key] = ($_SESSION['_cnt'][$key] ?? 0) + 1;
-        return $_SESSION['_cnt'][$key];
+        // Repli sans APCu : compteur en session, qui expire lui aussi après $ttl secondes
+        $c = $_SESSION['_cnt'][$key] ?? null;
+        if (!is_array($c) || $c[1] < time()) {
+            $c = [0, time() + $ttl];
+        }
+        $c[0]++;
+        $_SESSION['_cnt'][$key] = $c;
+        return $c[0];
     }
 
     public static function counter(string $key): int
@@ -116,7 +121,8 @@ final class Cache
         if (self::enabled()) {
             return (int) (apcu_fetch(self::k($key)) ?: 0);
         }
-        return (int) ($_SESSION['_cnt'][$key] ?? 0);
+        $c = $_SESSION['_cnt'][$key] ?? null;
+        return is_array($c) && $c[1] >= time() ? (int) $c[0] : 0;
     }
 
     public static function resetCounter(string $key): void

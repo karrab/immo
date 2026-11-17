@@ -124,7 +124,7 @@ preload.php     Préchargement OPcache
 Requêtes préparées natives (pas d'émulation), échappement systématique des sorties, jeton CSRF sur
 tous les formulaires, suppression uniquement en POST, sessions `HttpOnly`/`SameSite` avec régénération
 d'ID et expiration d'inactivité, `password_hash` (bcrypt/argon selon PHP) avec rehash automatique,
-blocage après 5 échecs de connexion (15 min), en-têtes `X-Frame-Options` / `nosniff`, seul `public/`
+blocage facultatif après N échecs de connexion (désactivé par défaut, `LOGIN_MAX_ATTEMPTS`), en-têtes `X-Frame-Options` / `nosniff`, seul `public/`
 est exposé. Un administrateur ne peut ni supprimer, ni désactiver, ni rétrograder son propre compte.
 
 ## Règles métier
