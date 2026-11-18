@@ -17,8 +17,22 @@ final class LocauxController extends Controller
 {
     private const SELECT = 'SELECT l.*, s.nom AS service,
             (SELECT COUNT(*) FROM biens b WHERE b.local_id = l.id) AS nb_biens,
-            (SELECT COALESCE(SUM(b.valeur_acquisition),0) FROM biens b WHERE b.local_id = l.id) AS valeur_biens
+            (SELECT COALESCE(SUM(b.valeur_acquisition),0) FROM biens b WHERE b.local_id = l.id) AS valeur_biens,
+            -- Occupants actifs (index idx_employes_local) : « id|Nom Prénom|type » séparés par « ;; », chef en tête
+            (SELECT COUNT(*) FROM employes o WHERE o.local_id = l.id AND o.actif = 1) AS nb_occupants,
+            (SELECT GROUP_CONCAT(CONCAT(o.id, \'|\', o.nom, \' \', o.prenom, \'|\', o.type)
+                    ORDER BY o.type = \'chef_service\' DESC, o.nom, o.prenom SEPARATOR \';;\')
+               FROM employes o WHERE o.local_id = l.id AND o.actif = 1) AS occupants
        FROM locaux l LEFT JOIN services s ON s.id = l.service_id';
+
+    /** Décode la colonne occupants en [[id, nom, type], ...]. */
+    public static function occupants(?string $raw): array
+    {
+        if ($raw === null || $raw === '') {
+            return [];
+        }
+        return array_map(static fn($o) => array_pad(explode('|', $o, 3), 3, 'employe'), explode(';;', $raw));
+    }
 
     private function filters(): array
     {
@@ -30,12 +44,21 @@ final class LocauxController extends Controller
             'batiment'   => $this->q('batiment'),
             'service_id' => $this->qint('service_id'),
             'actif'      => isset($_GET['actif']) && $_GET['actif'] !== '' ? (int) (bool) $_GET['actif'] : null,
+            'occupation' => in_array($_GET['occupation'] ?? '', ['occupe', 'libre'], true) ? $_GET['occupation'] : null,
+            'occupant'   => $this->q('occupant', 80),
         ];
         if ($f['q'])          { $w[] = '(l.code LIKE ? OR l.nom LIKE ?)'; array_push($p, $f['q'] . '%', '%' . $f['q'] . '%'); }
         if ($f['type'])       { $w[] = 'l.type = ?'; $p[] = $f['type']; }
         if ($f['batiment'])   { $w[] = 'l.batiment = ?'; $p[] = $f['batiment']; }
         if ($f['service_id']) { $w[] = 'l.service_id = ?'; $p[] = $f['service_id']; }
         if ($f['actif'] !== null) { $w[] = 'l.actif = ?'; $p[] = $f['actif']; }
+        if ($f['occupation']) {
+            $w[] = ($f['occupation'] === 'libre' ? 'NOT ' : '') . 'EXISTS (SELECT 1 FROM employes o WHERE o.local_id = l.id AND o.actif = 1)';
+        }
+        if ($f['occupant']) {
+            $w[] = 'EXISTS (SELECT 1 FROM employes o WHERE o.local_id = l.id AND o.actif = 1 AND (o.nom LIKE ? OR o.prenom LIKE ? OR o.matricule LIKE ?))';
+            array_push($p, $f['occupant'] . '%', $f['occupant'] . '%', $f['occupant'] . '%');
+        }
         return [$w, $p, $f];
     }
 
@@ -61,9 +84,9 @@ final class LocauxController extends Controller
         $rows = Database::all(self::SELECT . ($w ? ' WHERE ' . implode(' AND ', $w) : '') . ' ORDER BY l.code LIMIT ' . (int) config('app.export_max'), $p);
         Audit::log('export', 'locaux', null, 'Export de la liste des locaux (' . count($rows) . ' lignes)');
         if (($_GET['format'] ?? 'pdf') === 'csv') {
-            Csv::stream('locaux_' . date('Ymd') . '.csv', ['Code', 'Nom', 'Type', 'Bâtiment', 'Étage', 'Service', 'Nb biens', 'Valeur', 'Actif'],
+            Csv::stream('locaux_' . date('Ymd') . '.csv', ['Code', 'Nom', 'Type', 'Bâtiment', 'Étage', 'Service', 'Occupants', 'Nb biens', 'Valeur', 'Actif'],
                 array_map(static fn($r) => [$r['code'], $r['nom'], TYPES_LOCAL[$r['type']] ?? $r['type'], $r['batiment'], $r['etage'], $r['service'],
-                    $r['nb_biens'], number_format((float) $r['valeur_biens'], 2, ',', ''), $r['actif'] ? 'Oui' : 'Non'], $rows));
+                    implode(', ', array_map(static fn($o) => $o[1], self::occupants($r['occupants']))), $r['nb_biens'], number_format((float) $r['valeur_biens'], 2, ',', ''), $r['actif'] ? 'Oui' : 'Non'], $rows));
         }
         $html = View::render('pdf/locaux_liste', ['title' => 'Liste des locaux', 'rows' => $rows], 'layout/pdf');
         Pdf::stream($html, 'locaux_' . date('Ymd') . '.pdf', 'landscape', !empty($_GET['inline']));

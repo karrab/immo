@@ -1,4 +1,4 @@
-<?php use App\Core\Ref; $f = $filters;
+<?php use App\Core\Ref; use App\Controllers\LocauxController; $f = $filters;
 $actions = (can('locaux.export') ? partial('export', ['route' => 'locaux.export']) : '')
     . (can('locaux.create') ? '<a class="btn btn-primary" href="' . e(url('locaux.create')) . '"><i class="bi bi-plus-lg"></i> Nouveau local</a>' : ''); ?>
 <?= partial('page_header', ['title' => $title, 'icon' => 'door-open', 'actions' => $actions]) ?>
@@ -10,19 +10,31 @@ $actions = (can('locaux.export') ? partial('export', ['route' => 'locaux.export'
         <div class="col-md-2"><label class="form-label small mb-1">Bâtiment</label><select class="form-select" name="batiment"><?= options(array_combine($batiments, $batiments) ?: [], $f['batiment'], 'Tous') ?></select></div>
         <div class="col-md-2"><label class="form-label small mb-1">Service</label><select class="form-select" name="service_id"><?= options(Ref::pairs(Ref::services(), 'nom'), $f['service_id'], 'Tous') ?></select></div>
         <div class="col-md-1"><label class="form-label small mb-1">Actif</label><select class="form-select" name="actif"><?= options(['1' => 'Oui', '0' => 'Non'], $f['actif'], 'Tous') ?></select></div>
+        <div class="col-md-2"><label class="form-label small mb-1">Occupation</label><select class="form-select" name="occupation"><?= options(['occupe' => 'Occupés', 'libre' => 'Libres'], $f['occupation'], 'Tous') ?></select></div>
+        <div class="col-md-3"><label class="form-label small mb-1">Occupant</label><input class="form-control" type="search" name="occupant" value="<?= e($f['occupant']) ?>" placeholder="Nom, prénom ou matricule"></div>
         <div class="col-md-2 d-flex gap-2"><button class="btn btn-primary flex-grow-1"><i class="bi bi-search"></i> Filtrer</button><a class="btn btn-outline-secondary" href="<?= e(url('locaux.index')) ?>"><i class="bi bi-x-lg"></i></a></div>
     </div>
 </form>
 <div class="card"><div class="table-responsive"><table class="table table-hover mb-0">
-    <thead><tr><th>Code</th><th>Nom</th><th>Type</th><th>Bâtiment / étage</th><th>Service</th><th class="text-end">Biens</th><th class="text-end">Valeur</th><th class="text-end">Actions</th></tr></thead>
+    <thead><tr><th>Code</th><th>Nom</th><th>Type</th><th>Bâtiment / étage</th><th>Service</th><th>Occupants</th><th class="text-end">Biens</th><th class="text-end">Valeur</th><th class="text-end">Actions</th></tr></thead>
     <tbody>
     <?php foreach ($page['rows'] as $l): ?>
         <tr class="<?= $l['actif'] ? '' : 'text-body-secondary' ?>">
-            <td class="fw-semibold"><a href="<?= e(url('locaux.show', ['id' => $l['id']])) ?>"><?= e($l['code']) ?></a></td>
+            <td class="fw-semibold text-nowrap"><a href="<?= e(url('locaux.show', ['id' => $l['id']])) ?>"><?= e($l['code']) ?></a></td>
             <td><?= e($l['nom']) ?><?= $l['actif'] ? '' : ' <span class="badge text-bg-secondary">inactif</span>' ?></td>
             <td class="small"><?= e(TYPES_LOCAL[$l['type']] ?? $l['type']) ?></td>
             <td class="small"><?= e($l['batiment']) ?><?= $l['etage'] !== null ? ' · ét. ' . e($l['etage']) : '' ?></td>
             <td class="small"><?= e($l['service']) ?></td>
+            <td class="small">
+                <?php $occ = LocauxController::occupants($l['occupants']); $max = 3; ?>
+                <?php foreach (array_slice($occ, 0, $max) as [$oid, $onom, $otype]): ?>
+                    <div class="text-nowrap"><i class="bi bi-<?= $otype === 'chef_service' ? 'person-badge text-primary' : 'person text-body-secondary' ?>" title="<?= e(label(TYPES_EMPLOYE, $otype)) ?>"></i>
+                        <?= can('employes.view') ? '<a href="' . e(url('employes.show', ['id' => $oid])) . '">' . e($onom) . '</a>' : e($onom) ?></div>
+                <?php endforeach; ?>
+                <?php if ((int) $l['nb_occupants'] > $max): ?>
+                    <a class="text-body-secondary" href="<?= e(url('locaux.show', ['id' => $l['id']])) ?>">+ <?= (int) $l['nb_occupants'] - $max ?> autre(s)</a>
+                <?php elseif (!$occ): ?><span class="badge text-bg-light border">Libre</span><?php endif; ?>
+            </td>
             <td class="text-end"><?= (int) $l['nb_biens'] ?></td>
             <td class="text-end text-nowrap"><?= money($l['valeur_biens'], false) ?></td>
             <td class="text-end text-nowrap">
@@ -33,7 +45,7 @@ $actions = (can('locaux.export') ? partial('export', ['route' => 'locaux.export'
             </td>
         </tr>
     <?php endforeach; ?>
-    <?php if (!$page['rows']): ?><tr><td colspan="8" class="text-center text-body-secondary py-4">Aucun local.</td></tr><?php endif; ?>
+    <?php if (!$page['rows']): ?><tr><td colspan="9" class="text-center text-body-secondary py-4">Aucun local.</td></tr><?php endif; ?>
     </tbody>
 </table></div></div>
 <?= partial('pager', ['page' => $page, 'total' => $total]) ?>
