@@ -20,7 +20,8 @@
     .r, table.data th.r { text-align: right; } .c, table.data th.c { text-align: center; } .muted { color: #777; }
     .filters { margin: 0 0 8px; font-size: 8.5px; color: #555; }
     .total td { font-weight: bold; background: #e9f0fb !important; border-top: 1px solid #0d6efd; }
-    .sign { margin-top: 30px; } .sign td { width: 33%; padding: 6px; vertical-align: top; height: 60px; border: 0.5px solid #bbb; }
+    .sign { margin-top: 24px; page-break-inside: avoid; } .sign td { width: 33%; padding: 6px; vertical-align: top; height: 60px; border: 0.5px solid #bbb; }
+    .sign2 td { width: 50%; height: 105px; }
     .badge { padding: 1px 4px; border-radius: 3px; background: #eee; }
 </style>
 </head>

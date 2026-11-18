@@ -22,6 +22,14 @@ $back = $isEdit ? url('transferts.show', ['id' => $d['id']]) : url('transferts.i
                     <select class="form-select js-select<?= invalid($errors, 'employe_destination_id') ?>" name="employe_destination_id"><?= options(Ref::pairs(Ref::employes(), static fn($e) => $e['nom_complet'] . ' (' . $e['matricule'] . ')'), $d['employe_destination_id'] ?? null, '— Aucun (biens non affectés) —') ?></select>
                     <?= field_error($errors, 'employe_destination_id') ?>
                     <div class="form-text">À la validation, les biens seront affectés à cet employé (ou désaffectés si vide).</div></div>
+                <div class="row g-2 mb-3">
+                    <div class="col-sm-6"><label class="form-label">Remis par</label>
+                        <select class="form-select js-select<?= invalid($errors, 'remis_par_id') ?>" name="remis_par_id"><?= options(Ref::pairs(Ref::employes(), static fn($e) => $e['nom_complet'] . ' (' . $e['matricule'] . ')'), $d['remis_par_id'] ?? null, '— À compléter —') ?></select>
+                        <?= field_error($errors, 'remis_par_id') ?><div class="form-text">Côté local source.</div></div>
+                    <div class="col-sm-6"><label class="form-label">Reçu par</label>
+                        <select class="form-select js-select<?= invalid($errors, 'recu_par_id') ?>" name="recu_par_id"><?= options(Ref::pairs(Ref::employes(), static fn($e) => $e['nom_complet'] . ' (' . $e['matricule'] . ')'), $d['recu_par_id'] ?? null, '— Nouveau détenteur —') ?></select>
+                        <?= field_error($errors, 'recu_par_id') ?><div class="form-text">Côté local destination.</div></div>
+                </div>
                 <div class="mb-3"><label class="form-label">Date du transfert *</label>
                     <input type="date" class="form-control<?= invalid($errors, 'date_transfert') ?>" name="date_transfert" value="<?= e($d['date_transfert'] ?? '') ?>" required><?= field_error($errors, 'date_transfert') ?></div>
                 <div class="mb-3"><label class="form-label">Motif *</label>

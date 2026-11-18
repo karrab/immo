@@ -87,6 +87,12 @@ Comptes de démonstration (mot de passe `Demo@1234`) : `samira` (chef du service
 mysql gestimmo < database/migrations/002_chef_service.sql
 ```
 
+Puis, pour les noms « Remis par » / « Reçu par » du bon de transfert :
+
+```bash
+mysql gestimmo < database/migrations/003_transfert_remise.sql
+```
+
 La racine web doit pointer sur **`public/`** (exemple Nginx : `docker/nginx.conf.example`).
 Copier les réglages de `docker/php.ini` dans la configuration PHP (adapter `opcache.preload`).
 
@@ -136,5 +142,7 @@ est exposé. Un administrateur ne peut ni supprimer, ni désactiver, ni rétrogr
 * Le local d'un bien ne se modifie pas dans sa fiche : il passe par un **transfert** (traçabilité).
 * Un bien ne peut figurer que dans un seul transfert en attente ; à la validation on vérifie qu'il est
   toujours dans le local source.
-* Un transfert validé n'est pas supprimable (il fait partie de l'historique).
+* Un transfert validé n'est pas supprimable (il fait partie de l'historique). Le chef du service source peut le
+  **dévalider** (motif obligatoire) : les biens retournent dans le local source avec leur ancien détenteur et la
+  demande repasse en attente — refusé si un bien a été déplacé ou réaffecté depuis la validation.
 * Locaux / employés / catégories encore utilisés ne peuvent pas être supprimés (contraintes FK).

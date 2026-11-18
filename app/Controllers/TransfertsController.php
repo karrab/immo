@@ -27,6 +27,10 @@ final class TransfertsController extends Controller
     private const SELECT = "SELECT t.*, ls.code AS source_code, ls.nom AS source_nom, ld.code AS dest_code, ld.nom AS dest_nom,
             ls.service_id AS source_service_id, ss.nom AS source_service,
             ch.id AS chef_source_id, CONCAT(ch.nom, ' ', ch.prenom) AS chef_source,
+            ld.service_id AS dest_service_id, sd.nom AS dest_service,
+            chd.id AS chef_dest_id, CONCAT(chd.nom, ' ', chd.prenom) AS chef_dest,
+            CONCAT(rp.nom, ' ', rp.prenom) AS remis_par, rp.fonction AS remis_par_fonction,
+            CONCAT(rc.nom, ' ', rc.prenom) AS recu_par, rc.fonction AS recu_par_fonction,
             CONCAT(ed.nom, ' ', ed.prenom) AS employe_dest, ud.nom_complet AS demandeur, ut.nom_complet AS traitant,
             (SELECT COUNT(*) FROM transfert_lignes tl WHERE tl.transfert_id = t.id) AS nb_biens
        FROM transferts t
@@ -34,6 +38,10 @@ final class TransfertsController extends Controller
        LEFT JOIN locaux ld ON ld.id = t.local_destination_id
        LEFT JOIN services ss ON ss.id = ls.service_id
        LEFT JOIN employes ch ON ch.chef_service_id = ls.service_id
+       LEFT JOIN services sd ON sd.id = ld.service_id
+       LEFT JOIN employes chd ON chd.chef_service_id = ld.service_id
+       LEFT JOIN employes rp ON rp.id = t.remis_par_id
+       LEFT JOIN employes rc ON rc.id = t.recu_par_id
        LEFT JOIN employes ed ON ed.id = t.employe_destination_id
        LEFT JOIN users ud ON ud.id = t.demande_par
        LEFT JOIN users ut ON ut.id = t.traite_par";
@@ -151,12 +159,19 @@ final class TransfertsController extends Controller
             'local_source_id'        => $this->int('local_source_id'),
             'local_destination_id'   => $this->int('local_destination_id'),
             'employe_destination_id' => $this->int('employe_destination_id'),
+            'remis_par_id'           => $this->int('remis_par_id'),
+            'recu_par_id'            => $this->int('recu_par_id'),
             'date_transfert'         => $this->date('date_transfert'),
             'motif'                  => $this->str('motif', 255),
         ];
+        // Par défaut, le nouveau détenteur réceptionne les biens
+        $d['recu_par_id'] ??= $d['employe_destination_id'];
         $biens = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['biens'] ?? [])))));
         $locaux = array_column(Ref::locaux(), 'id');
         $e = [];
+        $empIds = array_column(Ref::employes(), 'id');
+        if ($d['remis_par_id'] && !in_array($d['remis_par_id'], $empIds)) $e['remis_par_id'] = 'Employé invalide.';
+        if ($d['recu_par_id'] && !in_array($d['recu_par_id'], $empIds)) $e['recu_par_id'] = 'Employé invalide.';
         if (!in_array($d['local_source_id'], $locaux)) $e['local_source_id'] = 'Choisissez le local source.';
         if (!in_array($d['local_destination_id'], $locaux)) $e['local_destination_id'] = 'Choisissez le local de destination.';
         if ($d['local_source_id'] && $d['local_source_id'] === $d['local_destination_id']) $e['local_destination_id'] = 'La destination doit être différente de la source.';
@@ -341,7 +356,19 @@ final class TransfertsController extends Controller
      */
     private function canProcess(array $t): bool
     {
-        if ($t['statut'] !== 'en_attente' || !can('transferts.validate')) {
+        return $t['statut'] === 'en_attente' && $this->isSourceChef($t);
+    }
+
+    /** Dévalidation : même autorité que la validation (chef du service source). */
+    private function canUnvalidate(array $t): bool
+    {
+        return $t['statut'] === 'valide' && $this->isSourceChef($t);
+    }
+
+    /** L'utilisateur est-il le chef du service du local source (ou l'admin si ce service n'a pas de chef) ? */
+    private function isSourceChef(array $t): bool
+    {
+        if (!can('transferts.validate')) {
             return false;
         }
         $u = Auth::user();
@@ -366,7 +393,7 @@ final class TransfertsController extends Controller
         $lignes = $this->keyset($this->lignesSelect(), ['tl.transfert_id = ?'], [$t['id']], 'b.code_inventaire', 'code_inventaire', 'b.id', 'ASC');
         $valeur = (float) Database::value('SELECT COALESCE(SUM(b.valeur_acquisition),0) FROM transfert_lignes tl JOIN biens b ON b.id = tl.bien_id WHERE tl.transfert_id = ?', [$t['id']]);
         $this->render('transferts/show', ['title' => 'Transfert ' . $t['numero'], 't' => $t, 'lignes' => $lignes, 'valeur' => $valeur,
-            'canProcess' => $this->canProcess($t), 'canEdit' => $this->canEdit($t)]);
+            'canProcess' => $this->canProcess($t), 'canEdit' => $this->canEdit($t), 'canUnvalidate' => $this->canUnvalidate($t)]);
     }
 
     public function pdf(): void
@@ -447,6 +474,86 @@ final class TransfertsController extends Controller
             flash('danger', $e->getMessage());
         }
         $this->redirect('transferts.show', ['id' => $t['id']]);
+    }
+
+    /**
+     * Dévalide un transfert validé : les biens reviennent dans le local source avec
+     * leur ancien détenteur, et le transfert repasse « en attente » (modifiable,
+     * revalidable ou rejetable). Refusé si un bien a bougé depuis la validation.
+     */
+    public function devalider(): void
+    {
+        $this->requirePost();
+        $t = $this->find((int) $this->int('id'));
+        $id = (int) $t['id'];
+        if ($t['statut'] !== 'valide') {
+            flash('warning', 'Seul un transfert validé peut être dévalidé.');
+            $this->redirect('transferts.show', ['id' => $id]);
+        }
+        if (!$this->canUnvalidate($t)) {
+            http_response_code(403);
+            echo View::render('errors/403', ['title' => 'Accès refusé', 'message' => $t['chef_source']
+                ? "Seul le chef du service {$t['source_service']} ({$t['chef_source']}) peut dévalider ce transfert."
+                : "Le service du local source n'a pas de chef : seul l'administrateur peut dévalider ce transfert."]);
+            exit;
+        }
+        $motif = $this->str('commentaire', 200);
+        if (!$motif) {
+            flash('danger', 'Indiquez le motif de la dévalidation.');
+            $this->redirect('transferts.show', ['id' => $id]);
+        }
+        try {
+            $nb = Database::transaction(function () use ($id, $motif) {
+                $cur = Database::one('SELECT * FROM transferts WHERE id = ? FOR UPDATE', [$id]);
+                if (!$cur || $cur['statut'] !== 'valide') {
+                    throw new BusinessException('Ce transfert n\'est plus validé.');
+                }
+                $rows = Database::all(
+                    'SELECT b.id, b.code_inventaire, b.local_id, b.employe_id, tl.employe_source_id, l.code AS local_code
+                       FROM transfert_lignes tl JOIN biens b ON b.id = tl.bien_id LEFT JOIN locaux l ON l.id = b.local_id
+                      WHERE tl.transfert_id = ? FOR UPDATE', [$id]);
+                foreach ($rows as $b) {
+                    // Le bien doit être resté tel que le transfert l'a laissé
+                    if ((int) $b['local_id'] !== (int) $cur['local_destination_id']
+                        || (int) ($b['employe_id'] ?? 0) !== (int) ($cur['employe_destination_id'] ?? 0)) {
+                        throw new BusinessException("Le bien {$b['code_inventaire']} a été déplacé ou réaffecté depuis la validation"
+                            . ($b['local_code'] ? " (actuellement en {$b['local_code']})" : '') . ' : dévalidation impossible.');
+                    }
+                    $autre = Database::value(
+                        "SELECT t.numero FROM transfert_lignes tl JOIN transferts t ON t.id = tl.transfert_id
+                          WHERE tl.bien_id = ? AND t.id <> ? AND t.statut = 'en_attente' LIMIT 1", [$b['id'], $id]);
+                    if ($autre) {
+                        throw new BusinessException("Le bien {$b['code_inventaire']} fait partie du transfert en attente $autre : dévalidation impossible.");
+                    }
+                }
+                $src  = Database::value('SELECT code FROM locaux WHERE id = ?', [$cur['local_source_id']]);
+                $dest = Database::value('SELECT code FROM locaux WHERE id = ?', [$cur['local_destination_id']]);
+                foreach ($rows as $b) {
+                    Database::update('biens', [
+                        'local_id'   => $cur['local_source_id'],
+                        'employe_id' => $b['employe_source_id'],
+                        'updated_by' => Auth::id(),
+                    ], 'id = ?', [$b['id']]);
+                    Audit::bien((int) $b['id'], 'transfert', "Dévalidation du transfert {$cur['numero']} : retour $dest → $src", [
+                        'transfert_id' => $id, 'motif' => $motif,
+                        'local_id'     => [$cur['local_destination_id'], $cur['local_source_id']],
+                        'employe_id'   => [$b['employe_id'], $b['employe_source_id']],
+                    ]);
+                }
+                Database::update('transferts', [
+                    'statut' => 'en_attente', 'traite_par' => null, 'date_traitement' => null,
+                    'commentaire' => mb_substr('Dévalidé le ' . date('d/m/Y H:i') . ' par ' . (user()['nom_complet'] ?? '') . ' : ' . $motif, 0, 255),
+                ], 'id = ?', [$id]);
+                return count($rows);
+            });
+            Audit::log('devalidation', 'transferts', $id, "Dévalidation du transfert {$t['numero']} ($nb biens remis en {$t['source_code']})",
+                ['motif' => $motif, 'traite_par_precedent' => $t['traitant'], 'date_validation' => $t['date_traitement']]);
+            Cache::invalidate('transferts', 'biens', 'locaux', 'employes');
+            flash('success', "Transfert dévalidé : $nb bien(s) remis dans {$t['source_code']}. La demande est de nouveau en attente.");
+        } catch (BusinessException $e) {
+            flash('danger', $e->getMessage());
+        }
+        $this->redirect('transferts.show', ['id' => $id]);
     }
 
     public function rejeter(): void

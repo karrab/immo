@@ -35,6 +35,9 @@ $actions .= '<a class="btn btn-outline-secondary" href="' . e(url('transferts.in
                 <dt>Motif</dt><dd><?= e($t['motif']) ?></dd>
                 <dt>Nouveau détenteur</dt><dd><?= e($t['employe_dest']) ?: '—' ?></dd>
                 <dt>Service source</dt><dd><?= e($t['source_service']) ?: '—' ?></dd>
+                <dt>Remis par</dt><dd><?= e($t['remis_par']) ?: '<span class="text-body-secondary">—</span>' ?></dd>
+                <dt>Reçu par</dt><dd><?= e($t['recu_par']) ?: '<span class="text-body-secondary">—</span>' ?></dd>
+                <dt>Chef du service de réception</dt><dd><?= $t['chef_dest'] ? e($t['chef_dest']) . ' <span class="small text-body-secondary">(' . e($t['dest_service']) . ')</span>' : '<span class="text-body-secondary">' . ($t['dest_service'] ? 'Aucun chef — ' . e($t['dest_service']) : '—') . '</span>' ?></dd>
                 <dt>Validateur</dt><dd><?php if ($t['chef_source']): ?><i class="bi bi-person-badge text-primary"></i> <?= e($t['chef_source']) ?> <span class="small text-body-secondary">(chef de service)</span>
                     <?php else: ?><span class="text-warning-emphasis">Aucun chef désigné — administrateur</span><?php endif; ?></dd>
                 <dt>Demandé par</dt><dd><?= e($t['demandeur']) ?> <span class="small text-body-secondary">le <?= datetime_fr($t['created_at']) ?></span></dd>
@@ -44,6 +47,16 @@ $actions .= '<a class="btn btn-outline-secondary" href="' . e(url('transferts.in
                 <?php endif; ?>
             </dl></div>
         </div>
+        <?php if ($canUnvalidate): ?>
+        <div class="card border-danger mb-3"><div class="card-header bg-danger-subtle"><i class="bi bi-arrow-counterclockwise"></i> Dévalider le transfert</div><div class="card-body">
+            <p class="small text-body-secondary">Les biens retournent dans <strong><?= e($t['source_code']) ?></strong> avec leur ancien détenteur, et la demande repasse « en attente » (modifiable, revalidable ou rejetable). Impossible si un bien a été déplacé depuis.</p>
+            <form method="post" action="<?= e(url('transferts.devalider')) ?>" data-confirm="Dévalider le transfert <?= e($t['numero']) ?> ? Les <?= (int) $t['nb_biens'] ?> bien(s) seront remis dans <?= e($t['source_code']) ?>." data-confirm-label="Dévalider">
+                <?= csrf_field() ?><input type="hidden" name="id" value="<?= (int) $t['id'] ?>">
+                <input class="form-control mb-2" name="commentaire" placeholder="Motif de la dévalidation (obligatoire)" maxlength="200" required>
+                <button class="btn btn-outline-danger w-100"><i class="bi bi-arrow-counterclockwise"></i> Dévalider</button>
+            </form>
+        </div></div>
+        <?php endif; ?>
         <?php if ($t['statut'] === 'en_attente'): ?>
         <div class="card"><div class="card-header">Traitement par le chef de service</div><div class="card-body">
             <?php if ($canProcess): ?>
