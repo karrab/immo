@@ -79,6 +79,10 @@ final class TransfertsController extends Controller
         $this->authorize('transferts.view');
         [$w, $p, $f] = $this->filters();
         $page = $this->keyset(self::SELECT, $w, $p, 't.id', 'id', 't.id', 'DESC');
+        foreach ($page['rows'] as &$row) {
+            $row['can_edit'] = $this->canEdit($row);
+        }
+        unset($row);
         $total = $this->cachedCount('transferts', self::FROM_COUNT . ($w ? ' WHERE ' . implode(' AND ', $w) : ''), $p);
         $this->render('transferts/index', ['title' => $f['a_valider'] ? 'Transferts à valider' : 'Transferts de biens',
             'page' => $page, 'filters' => $f, 'total' => $total]);
@@ -106,9 +110,10 @@ final class TransfertsController extends Controller
     public function biens(): void
     {
         $this->authorize('transferts.create');
+        $except = (int) ($this->qint('transfert_id') ?? 0); // modification : ses propres biens restent sélectionnables
         $w = ['b.local_id = ?', "NOT EXISTS (SELECT 1 FROM transfert_lignes tl JOIN transferts t ON t.id = tl.transfert_id
-                                     WHERE tl.bien_id = b.id AND t.statut = 'en_attente')"];
-        $p = [(int) $this->qint('local_id')];
+                                     WHERE tl.bien_id = b.id AND t.statut = 'en_attente' AND t.id <> ?)"];
+        $p = [(int) $this->qint('local_id'), $except];
         if ($q = $this->q('q', 60)) {
             $w[] = '(b.code_inventaire LIKE ? OR b.designation LIKE ? OR b.numero_serie LIKE ?)';
             array_push($p, $q . '%', '%' . $q . '%', $q . '%');
@@ -139,10 +144,9 @@ final class TransfertsController extends Controller
         $this->render('transferts/form', ['title' => 'Nouveau transfert', 'data' => $data, 'errors' => []]);
     }
 
-    public function store(): void
+    /** Lit et valide le formulaire. @return array{0: array, 1: list<int>, 2: array} [données, biens, erreurs] */
+    private function input(): array
     {
-        $this->authorize('transferts.create');
-        $this->requirePost();
         $d = [
             'local_source_id'        => $this->int('local_source_id'),
             'local_destination_id'   => $this->int('local_destination_id'),
@@ -161,31 +165,51 @@ final class TransfertsController extends Controller
         if (!$d['motif']) $e['motif'] = 'Le motif est obligatoire.';
         if (!$biens) $e['biens'] = 'Sélectionnez au moins un bien à transférer.';
         if (count($biens) > 1000) $e['biens'] = 'Maximum 1000 biens par transfert.';
+        return [$d, $biens, $e];
+    }
+
+    /**
+     * Verrouille et contrôle les biens (dans une transaction) : existence, périmètre,
+     * présence dans le local source, absence d'un autre transfert en attente.
+     */
+    private function lockBiens(array $d, array $biens, ?int $exceptTransfertId = null): array
+    {
+        $in = implode(',', array_fill(0, count($biens), '?'));
+        $rows = Database::all("SELECT b.id, b.code_inventaire, b.local_id, b.employe_id, e.service_id AS employe_service_id, l.service_id AS local_service_id
+                                 FROM biens b LEFT JOIN employes e ON e.id = b.employe_id LEFT JOIN locaux l ON l.id = b.local_id
+                                WHERE b.id IN ($in) FOR UPDATE", $biens);
+        if (count($rows) !== count($biens)) {
+            throw new BusinessException('Certains biens sélectionnés n\'existent plus.');
+        }
+        foreach ($rows as $r) {
+            if (!Scope::canSeeBien($r)) {
+                throw new BusinessException("Le bien {$r['code_inventaire']} ne fait pas partie de votre périmètre.");
+            }
+            if ((int) $r['local_id'] !== $d['local_source_id']) {
+                throw new BusinessException("Le bien {$r['code_inventaire']} n'est pas dans le local source.");
+            }
+        }
+        $pending = Database::value(
+            "SELECT b.code_inventaire FROM transfert_lignes tl JOIN transferts t ON t.id = tl.transfert_id
+               JOIN biens b ON b.id = tl.bien_id WHERE t.statut = 'en_attente' AND tl.bien_id IN ($in)"
+            . ($exceptTransfertId ? ' AND t.id <> ?' : '') . ' LIMIT 1',
+            $exceptTransfertId ? [...$biens, $exceptTransfertId] : $biens);
+        if ($pending) {
+            throw new BusinessException("Le bien $pending fait déjà l'objet d'un autre transfert en attente.");
+        }
+        return $rows;
+    }
+
+    public function store(): void
+    {
+        $this->authorize('transferts.create');
+        $this->requirePost();
+        [$d, $biens, $e] = $this->input();
 
         if (!$e) {
             try {
                 $id = Database::transaction(function () use ($d, $biens) {
-                    $in = implode(',', array_fill(0, count($biens), '?'));
-                    $rows = Database::all("SELECT b.id, b.code_inventaire, b.local_id, b.employe_id, e.service_id AS employe_service_id, l.service_id AS local_service_id
-                                             FROM biens b LEFT JOIN employes e ON e.id = b.employe_id LEFT JOIN locaux l ON l.id = b.local_id
-                                            WHERE b.id IN ($in) FOR UPDATE", $biens);
-                    if (count($rows) !== count($biens)) {
-                        throw new BusinessException('Certains biens sélectionnés n\'existent plus.');
-                    }
-                    foreach ($rows as $r) {
-                        if (!Scope::canSeeBien($r)) {
-                            throw new BusinessException("Le bien {$r['code_inventaire']} ne fait pas partie de votre périmètre.");
-                        }
-                        if ((int) $r['local_id'] !== $d['local_source_id']) {
-                            throw new BusinessException("Le bien {$r['code_inventaire']} n'est pas dans le local source.");
-                        }
-                    }
-                    $pending = Database::value(
-                        "SELECT b.code_inventaire FROM transfert_lignes tl JOIN transferts t ON t.id = tl.transfert_id
-                           JOIN biens b ON b.id = tl.bien_id WHERE t.statut = 'en_attente' AND tl.bien_id IN ($in) LIMIT 1", $biens);
-                    if ($pending) {
-                        throw new BusinessException("Le bien $pending fait déjà l'objet d'un transfert en attente.");
-                    }
+                    $rows = $this->lockBiens($d, $biens);
                     $d['numero'] = sprintf('TR-%s-%05d', date('Y'), Database::nextSequence('transfert:' . date('Y')));
                     $d['demande_par'] = Auth::id();
                     $d['statut'] = 'en_attente';
@@ -212,6 +236,94 @@ final class TransfertsController extends Controller
             }
         }
         $this->render('transferts/form', ['title' => 'Nouveau transfert', 'data' => $d + ['biens' => $biens], 'errors' => $e]);
+    }
+
+    /**
+     * Modification possible tant que le transfert est en attente, par le demandeur
+     * ou par la personne habilitée à le traiter (chef du service source / admin).
+     */
+    private function canEdit(array $t): bool
+    {
+        return $t['statut'] === 'en_attente' && can('transferts.create')
+            && ((int) $t['demande_par'] === Auth::id() || $this->canProcess($t) || (int) (user()['is_super'] ?? 0) === 1);
+    }
+
+    /** Charge le transfert à modifier ou refuse avec un message explicite. */
+    private function forEdit(int $id): array
+    {
+        $t = $this->find($id);
+        if ($t['statut'] !== 'en_attente') {
+            flash('warning', 'Seul un transfert en attente peut être modifié (celui-ci est « ' . label(STATUTS_TRANSFERT, $t['statut']) . ' »).');
+            $this->redirect('transferts.show', ['id' => $id]);
+        }
+        if (!$this->canEdit($t)) {
+            http_response_code(403);
+            echo View::render('errors/403', ['title' => 'Accès refusé',
+                'message' => 'Seuls le demandeur et le chef du service source peuvent modifier ce transfert.']);
+            exit;
+        }
+        return $t;
+    }
+
+    public function edit(): void
+    {
+        $t = $this->forEdit((int) $this->qint('id'));
+        $data = $t + ['biens' => array_map('intval', array_column(
+            Database::all('SELECT bien_id FROM transfert_lignes WHERE transfert_id = ?', [$t['id']]), 'bien_id'))];
+        $this->render('transferts/form', ['title' => 'Modifier le transfert ' . $t['numero'], 'data' => $data, 'errors' => []]);
+    }
+
+    public function update(): void
+    {
+        $this->requirePost();
+        $t = $this->forEdit((int) $this->int('id'));
+        $id = (int) $t['id'];
+        [$d, $biens, $e] = $this->input();
+
+        if (!$e) {
+            try {
+                $changes = Database::transaction(function () use ($id, $d, $biens) {
+                    $cur = Database::one('SELECT * FROM transferts WHERE id = ? FOR UPDATE', [$id]);
+                    if (!$cur || $cur['statut'] !== 'en_attente') {
+                        throw new BusinessException('Ce transfert vient d\'être traité : il ne peut plus être modifié.');
+                    }
+                    $rows = $this->lockBiens($d, $biens, $id);
+                    $avant = array_map('intval', array_column(Database::all('SELECT bien_id FROM transfert_lignes WHERE transfert_id = ?', [$id]), 'bien_id'));
+
+                    Database::update('transferts', $d, 'id = ?', [$id]);
+                    // Lignes : on retire les biens décochés et on ajoute les nouveaux
+                    $retires = array_values(array_diff($avant, $biens));
+                    $ajoutes = array_values(array_diff($biens, $avant));
+                    if ($retires) {
+                        Database::run('DELETE FROM transfert_lignes WHERE transfert_id = ? AND bien_id IN (' . implode(',', array_fill(0, count($retires), '?')) . ')', [$id, ...$retires]);
+                    }
+                    foreach ($rows as $r) {
+                        if (in_array((int) $r['id'], $ajoutes, true)) {
+                            Database::insert('transfert_lignes', ['transfert_id' => $id, 'bien_id' => $r['id'], 'employe_source_id' => $r['employe_id']]);
+                        }
+                    }
+                    $changes = Audit::diff($cur, $d);
+                    if ($retires || $ajoutes) {
+                        $code = static fn(array $ids) => $ids ? array_column(Database::all(
+                            'SELECT code_inventaire FROM biens WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')', $ids), 'code_inventaire') : [];
+                        $changes['biens'] = ['retirés' => $code($retires), 'ajoutés' => $code($ajoutes)];
+                    }
+                    return $changes;
+                });
+                if ($changes) {
+                    Audit::log('modification', 'transferts', $id, "Modification du transfert {$t['numero']}", $changes);
+                    Cache::invalidate('transferts');
+                    flash('success', "Transfert {$t['numero']} modifié.");
+                } else {
+                    flash('info', 'Aucune modification.');
+                }
+                $this->redirect('transferts.show', ['id' => $id]);
+            } catch (BusinessException $ex) {
+                $e['biens'] = $ex->getMessage();
+            }
+        }
+        $this->render('transferts/form', ['title' => 'Modifier le transfert ' . $t['numero'],
+            'data' => $d + ['biens' => $biens, 'id' => $id, 'numero' => $t['numero']], 'errors' => $e]);
     }
 
     private function find(int $id): array
@@ -254,7 +366,7 @@ final class TransfertsController extends Controller
         $lignes = $this->keyset($this->lignesSelect(), ['tl.transfert_id = ?'], [$t['id']], 'b.code_inventaire', 'code_inventaire', 'b.id', 'ASC');
         $valeur = (float) Database::value('SELECT COALESCE(SUM(b.valeur_acquisition),0) FROM transfert_lignes tl JOIN biens b ON b.id = tl.bien_id WHERE tl.transfert_id = ?', [$t['id']]);
         $this->render('transferts/show', ['title' => 'Transfert ' . $t['numero'], 't' => $t, 'lignes' => $lignes, 'valeur' => $valeur,
-            'canProcess' => $this->canProcess($t)]);
+            'canProcess' => $this->canProcess($t), 'canEdit' => $this->canEdit($t)]);
     }
 
     public function pdf(): void

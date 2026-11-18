@@ -1,7 +1,13 @@
-<?php use App\Core\Ref; $d = $data; $locaux = Ref::pairs(Ref::locaux(), [Ref::class, 'localLabel']); ?>
-<?= partial('page_header', ['title' => $title, 'icon' => 'arrow-left-right', 'actions' => '<a class="btn btn-outline-secondary" href="' . e(url('transferts.index')) . '"><i class="bi bi-arrow-left"></i> Retour</a>']) ?>
-<form method="post" action="<?= e(url('transferts.store')) ?>" id="transfertForm">
+<?php use App\Core\Ref; $d = $data; $locaux = Ref::pairs(Ref::locaux(), [Ref::class, 'localLabel']);
+$isEdit = !empty($d['id']);
+$back = $isEdit ? url('transferts.show', ['id' => $d['id']]) : url('transferts.index'); ?>
+<?= partial('page_header', ['title' => $title, 'icon' => $isEdit ? 'pencil-square' : 'arrow-left-right', 'actions' => '<a class="btn btn-outline-secondary" href="' . e($back) . '"><i class="bi bi-arrow-left"></i> Retour</a>']) ?>
+<?php if ($isEdit): ?>
+    <div class="alert alert-info py-2"><i class="bi bi-info-circle"></i> Modification d'une demande <strong>en attente</strong> : décochez un bien pour le retirer, cochez-en d'autres pour les ajouter. La demande reste à valider par le chef du service source.</div>
+<?php endif; ?>
+<form method="post" action="<?= e(url($isEdit ? 'transferts.update' : 'transferts.store')) ?>" id="transfertForm">
     <?= csrf_field() ?>
+    <?php if ($isEdit): ?><input type="hidden" name="id" value="<?= (int) $d['id'] ?>"><?php endif; ?>
     <div class="row g-3">
         <div class="col-xl-4">
             <div class="card mb-3"><div class="card-header"><i class="bi bi-signpost-split me-1"></i> Mouvement</div><div class="card-body">
@@ -20,12 +26,13 @@
                     <input type="date" class="form-control<?= invalid($errors, 'date_transfert') ?>" name="date_transfert" value="<?= e($d['date_transfert'] ?? '') ?>" required><?= field_error($errors, 'date_transfert') ?></div>
                 <div class="mb-3"><label class="form-label">Motif *</label>
                     <input class="form-control<?= invalid($errors, 'motif') ?>" name="motif" value="<?= e($d['motif'] ?? '') ?>" maxlength="255" required placeholder="Réorganisation, réaffectation, réparation…"><?= field_error($errors, 'motif') ?></div>
-                <?php if (can('transferts.validate') && App\Core\Scope::chefOfService()): ?>
+                <?php if (!$isEdit && can('transferts.validate') && App\Core\Scope::chefOfService()): ?>
                 <div class="form-check"><input class="form-check-input" type="checkbox" name="valider" value="1" id="valider"><label class="form-check-label" for="valider">Valider immédiatement (si je suis le chef du service source)</label></div>
                 <?php endif; ?>
                 <div class="form-text"><i class="bi bi-info-circle"></i> La demande sera validée, rejetée ou annulée par le <strong>chef du service</strong> du local source.</div>
             </div></div>
-            <button class="btn btn-primary btn-lg w-100"><i class="bi bi-send"></i> Enregistrer le transfert</button>
+            <button class="btn btn-primary btn-lg w-100"><i class="bi bi-<?= $isEdit ? 'check-lg' : 'send' ?>"></i> <?= $isEdit ? 'Enregistrer les modifications' : 'Enregistrer le transfert' ?></button>
+            <?php if ($isEdit): ?><a class="btn btn-outline-secondary w-100 mt-2" href="<?= e($back) ?>">Annuler</a><?php endif; ?>
         </div>
         <div class="col-xl-8">
             <div class="card"><div class="card-header d-flex justify-content-between align-items-center">
@@ -65,7 +72,7 @@
         if (reset) { next = null; loaded = 0; }
         if (!src.value) { empty("Choisissez d'abord le local source."); more.classList.add('d-none'); info.textContent = ''; count(); return; }
         if (reset) empty('<div class="spinner-border spinner-border-sm"></div> Chargement…');
-        const qs = new URLSearchParams({ r: 'transferts.biens', local_id: src.value, q: search.value.trim() });
+        const qs = new URLSearchParams({ r: 'transferts.biens', local_id: src.value, q: search.value.trim(), transfert_id: <?= (int) ($d['id'] ?? 0) ?> });
         if (next) qs.set('after', next);
         const res = await fetch('index.php?' + qs, { headers: { 'Accept': 'application/json' } });
         const data = await res.json();

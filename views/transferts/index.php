@@ -32,7 +32,8 @@ $actions = ($chefSid ? '<a class="btn ' . ($f['a_valider'] ? 'btn-warning' : 'bt
             <td><?= badge(STATUTS_TRANSFERT, $t['statut']) ?></td>
             <td class="small"><?= e($t['chef_source'] ?: 'Administrateur') ?><div class="text-body-secondary"><?= e($t['source_service']) ?></div></td>
             <td class="text-end text-nowrap">
-                <a class="btn btn-sm btn-outline-primary" href="<?= e(url('transferts.show', ['id' => $t['id']])) ?>"><i class="bi bi-eye"></i></a>
+                <a class="btn btn-sm btn-outline-primary" href="<?= e(url('transferts.show', ['id' => $t['id']])) ?>" title="Voir"><i class="bi bi-eye"></i></a>
+                <?php if ($t['can_edit']): ?><a class="btn btn-sm btn-outline-secondary" href="<?= e(url('transferts.edit', ['id' => $t['id']])) ?>" title="Modifier"><i class="bi bi-pencil"></i></a><?php endif; ?>
                 <?php if (can('transferts.export')): ?><a class="btn btn-sm btn-outline-dark" target="_blank" href="<?= e(url('transferts.pdf', ['id' => $t['id'], 'inline' => 1])) ?>" title="Imprimer le bon"><i class="bi bi-printer"></i></a><?php endif; ?>
                 <?php if (can('transferts.delete') && $t['statut'] !== 'valide'): ?><?= partial('delete', ['route' => 'transferts.delete', 'id' => $t['id'], 'label' => $t['numero']]) ?><?php endif; ?>
             </td>

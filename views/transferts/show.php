@@ -1,5 +1,6 @@
 <?php
 $actions = '';
+if ($canEdit) $actions .= '<a class="btn btn-primary" href="' . e(url('transferts.edit', ['id' => $t['id']])) . '"><i class="bi bi-pencil"></i> Modifier</a>';
 if (can('transferts.export')) $actions .= '<a class="btn btn-outline-secondary" target="_blank" href="' . e(url('transferts.pdf', ['id' => $t['id'], 'inline' => 1])) . '"><i class="bi bi-printer"></i> Imprimer le bon</a>'
     . '<a class="btn btn-outline-danger" href="' . e(url('transferts.pdf', ['id' => $t['id']])) . '"><i class="bi bi-file-earmark-pdf"></i> PDF</a>';
 if (can('transferts.delete') && $t['statut'] !== 'valide') $actions .= partial('delete', ['route' => 'transferts.delete', 'id' => $t['id'], 'label' => $t['numero'], 'small' => false, 'text' => 'Supprimer']);
